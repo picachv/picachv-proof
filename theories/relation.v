@@ -9,7 +9,6 @@ Require Import String.
 Require Import Unicode.Utf8.
 
 Require Import data_model.
-Require Import finite_bags.
 Require Import ordering.
 Require Import trace.
 Require Import types.
@@ -22,7 +21,7 @@ Require Import util.
   @param s   The schema of the relation.
   @return    A finite bag (fbag) of tuples of type [ty].
 *)
-Definition relation_np (s: schema) := fbag (Tuple.tuple_np (♭ s)).
+Definition relation_np (s: schema) := collection (Tuple.tuple_np (♭ s)).
 
 (** 
   [relation] is a function that takes a tuple type [ty] as an argument and returns a finite bag (fbag) of tuples of type [ty]. 
@@ -31,7 +30,7 @@ Definition relation_np (s: schema) := fbag (Tuple.tuple_np (♭ s)).
   @param s   The schema of the relation.
   @return    A finite bag (fbag) of tuples of type [ty].
 *)
-Definition relation (s: schema) := fbag (Tuple.tuple (♭ s)).
+Definition relation (s: schema) := collection (Tuple.tuple (♭ s)).
 Hint Unfold relation: core.
 
 Inductive relation_wrapped: Type :=
@@ -42,7 +41,7 @@ Inductive relation_wrapped: Type :=
 Fixpoint dataframe (s: schema): Type :=
   match s with
   | nil => unit
-  | (bt, _) :: t => (fbag (type_to_coq_type bt * nat) * dataframe t)%type
+  | (bt, _) :: t => (collection (type_to_coq_type bt * nat) * dataframe t)%type
   end.
 
 Definition db_entry s := (Tuple.tuple_np (♭ s) * Policy.policy_store (♭ s))%type.
@@ -250,7 +249,7 @@ Proof.
   - reflexivity.
   - inversion H.
   - inversion H.
-  - unfold relation. unfold fbag.
+  - unfold relation.
     simpl. destruct a, a0. simpl in *. inversion H. subst. auto.
 Qed.
 
@@ -849,81 +848,6 @@ Inductive relation_join_by_prv: ∀ s1 s2 join_by,
       r_out = r_hd ++ r_cons →
       relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 tr1 tr2 (Some (r_out, ε_out, tr_out))
 .
-
-Lemma join_policy_and_trace_terminate: ∀ l1 l2 com tr1 tr2, ∃ res,
-  join_policy_and_trace l1 l2 com tr1 tr2 res.
-Proof.
-  induction l1; destruct l2; destruct com; intros.
-  1-7: exists (Some (tr1 ⊍ tr2)); constructor; auto.
-  all: remember a as hd1. remember n as hd2.
-    destruct (label_lookup tr1 hd1) eqn: Hhd1, (label_lookup tr2 hd2) eqn: Hhd2.
-    2-4: exists None; eapply join_policy_and_trace_lookup_err; eauto.
-    all: assert (tr1 ≠ nil ∧ tr2 ≠ nil) as Hpreq.
-    {
-      destruct tr1; destruct tr2; try discriminate.
-      split; discriminate. 
-    }
-    destruct Hpreq.
-    destruct tr1; destruct tr2; try discriminate.
-    destruct (IHl1 l2 com tr1 tr2).
-    destruct x as [tr|].
-    - pose (extract_policy t) as p1.
-      pose (extract_policy t0) as p2.
-      destruct (Policy.policy_join_terminate p1 p2) as [pjoin].
-      exists (Some ((n0, (TrBranch prov_join pjoin (t :: t0 :: nil))) :: tr)).
-      eapply join_policy_and_trace_cons_ok; eauto.
-    - exists None. eapply join_policy_and_trace_cons_err; eauto.
-Qed.
-
-Lemma relation_join_by_prv_helper_terminate: ∀ s1 s2 join_by t r ε1 ε2 p1 p2,
-  ∃ res, relation_join_by_prv_helper s1 s2 join_by t r ε1 ε2 p1 p2 res.
-Proof.
-  induction r; intros.
-  - subst. exists (Some (nil, calculate_budget ε1 ε2, (p1 ⊍ p2))). constructor; auto.
-  - rename t into t1. rename a into t2.
-    destruct (tuple_concat_by s1 s2 join_by t1 t2) as [ [t' [ [ index_lhs index_rhs ] comid ] ]|] eqn: H1.
-    + destruct (join_policy_and_trace_terminate index_lhs index_rhs comid p1 p2). destruct x as [tr_merged|] eqn: H2.
-      * destruct (IHr ε1 ε2 p1 p2). destruct x0 as [ [ [r_cons ε_cons] tr_cons] |].
-        -- exists (Some (t' :: r_cons, calculate_budget (calculate_budget ε1 ε2) ε_cons, (tr_merged ⊍ tr_cons))).
-           eapply E_JoinConsOk; intuition; try discriminate; eauto.
-        -- exists None. eapply E_JoinConsError3; intuition; try discriminate; eauto.
-      * exists None. eapply E_JoinConsError2; intuition; try discriminate; eauto.
-    + exists None. eapply E_JoinConsError1; intuition; try discriminate; eauto.
-Qed.
-
-Lemma relation_join_by_prv_terminate: ∀ s1 s2 join_by r1 r2 ε1 ε2 p1 p2, ∃ res,
-  relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 p1 p2 res.
-Proof.
-  intros. destruct s1; destruct s2.
-  - exists (Some (nil, O, nil)). constructor; intuition.
-  - exists (Some (nil, O, nil)). constructor; intuition.
-  - exists (Some (nil, O, nil)). constructor; intuition.
-  - induction r1; destruct r2.
-    + exists (Some (nil, O, nil)). apply E_RelationJoinNil. intuition.
-    + exists (Some (nil, O, nil)). apply E_RelationJoinNil. intuition.
-    + exists (Some (nil, O, nil)). apply E_RelationJoinNil. intuition.
-    + destruct (relation_join_by_prv_helper_terminate
-                  (a :: s1) (a0 :: s2) join_by a1 (t :: r2) ε1 ε2 p1 p2).
-      destruct IHr1.
-      destruct x; destruct x0.
-      * destruct p as[ [ r_hd β_hd ] p_hd ].
-        destruct p0 as[ [ r_cons β_cons ] p_cons ].
-        pose (merge_env p_hd p_cons) as p_out.
-        pose (calculate_budget β_hd β_cons) as β_out.
-        exists (Some (r_hd ++ r_cons, β_out, p_out)).
-        eapply E_RelationJoinConsOk; intuition; try discriminate; eauto.
-      * exists None. destruct p as[ [ r_hd β_hd ] p_hd ].
-        eapply E_RelationJoinConsErr; intuition; try discriminate; eauto.
-      * exists None. econstructor; intuition; try discriminate; auto.
-      * exists None. econstructor; intuition; try discriminate; auto.
-Qed.
-
-Lemma relation_join_by_prv_deterministic: ∀ s1 s2 join_by r1 r2 ε1 ε2 p1 p2 res1 res2,
-  relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 p1 p2 res1 →
-  relation_join_by_prv s1 s2 join_by r1 r2 ε1 ε2 p1 p2 res2 →
-  res1 = res2.
-Proof.
-Admitted.
 
 Fixpoint inject_id_tuple s (t: (Tuple.tuple_np (♭ s))) (p: Policy.policy_store (♭ s)) (id_start: nat)
   : (Tuple.tuple (♭ s) * Policy.context).

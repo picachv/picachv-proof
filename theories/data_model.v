@@ -45,7 +45,6 @@ Definition policy_base_label_eq (lhs rhs: policy_label): Prop :=
   end.
 Notation "x '≃' y" := (policy_base_label_eq x y) (at level 10, y at next level, no associativity).
 
-
 Lemma policy_base_label_eq_dec: ∀ (lhs rhs: policy_label), {lhs ≃ rhs} + {~ (lhs ≃ rhs)}.
 Proof.
   intros. destruct lhs; destruct rhs;
@@ -127,10 +126,10 @@ Theorem can_declassify_dec: ∀ ℓ ℓop, {can_declassify ℓ ℓop} + {~ can_d
 Proof.
   intros. destruct ℓ; destruct ℓop; auto with *;
   try solve [(left; simpl; auto) | (right; red; intros; discriminate)].
-  - destruct (subset_dec trans_op_eq_dec s0 s).
+  - destruct (subset_dec transop_dec s0 s).
     + left. simpl. assumption.
     + right. red. intros. apply n. simpl in H. assumption.
-  - destruct (subset_dec agg_op_eq_dec s0 s).
+  - destruct (subset_dec aggop_dec s0 s).
     + left. simpl. assumption.
     + right. red. intros. apply n. simpl in H. assumption.
   - destruct n, n0, d, d0.
@@ -712,6 +711,14 @@ Inductive policy_join: policy → policy → policy → Prop :=
       (ℓ1 ⇝ p1) ∪ p2 = p3 →
       (* ------------- *)
       (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ2 ⇝ p3)
+  | policy_join_merge_transform: ∀ ℓ1 ℓ2 ℓ3 p1 p2 p3,
+      valid_policy (ℓ1 ⇝ p1) →
+      valid_policy (ℓ2 ⇝ p2) →
+      policy_base_label_eq ℓ1 ℓ2 →
+      policy_label_join ℓ1 ℓ2 = ℓ3 →
+      p1 ∪ p2 = p3 →
+      (* ------------- *)
+      (ℓ1 ⇝ p1) ∪ (ℓ2 ⇝ p2) = (ℓ3 ⇝ p3)
 where "x '∪' y '=' z" := (policy_join x y z).
 
 Lemma policy_join_valid: ∀ p1 p2 p3,
@@ -719,8 +726,29 @@ Lemma policy_join_valid: ∀ p1 p2 p3,
 Proof.
   intros p1 p2 p3. generalize dependent p2. generalize dependent p1.
   induction p3; intros; inversion H; subst; try constructor; auto.
-  - inversion H7; subst; try (econstructor; eauto). inversion H2. subst. assumption.
-  - inversion H7; subst; (econstructor; eauto). inversion H3. subst. assumption.
+  - inversion H7; subst; try (econstructor; eauto); inversion H2; subst.
+    + assumption.
+    + assert (ℓ1 ⊔ ℓ2 ⊑ p) by (apply join_upper_bound; assumption). auto.
+  - inversion H7; subst; (econstructor; eauto); inversion H3; subst.
+    + assumption.
+    + assert (ℓ1 ⊔ ℓ2 ⊑ p) by (apply join_upper_bound; assumption). auto.
+  - inversion H2; subst; inversion H3; subst.
+    + inversion H8; subst; constructor.
+    + inversion H8; subst; constructor; intuition.
+      apply join_preserve_flowsto_lhs with (c := ℓ1) in H6.
+      assumption.
+    + inversion H8; subst; constructor; intuition.
+      apply join_preserve_flowsto_rhs with (c := ℓ2) in H6.
+      assumption.
+    + inversion H8; subst; constructor; intuition.
+      -- eapply IHp3. eapply H8.
+      -- apply join_preserve_flowsto_rhs with (c := ℓ2) in H6.
+         assumption.
+      -- eapply IHp3. eapply H8.
+      -- apply join_preserve_flowsto_lhs with (c := ℓ1) in H9.
+         assumption.
+      -- eapply IHp3. eapply H8.
+      -- assert (ℓ3 ⊔ ℓ4 ⊑ ℓ1 ⊔ ℓ2) by (apply join_upper_bound'; assumption). auto.
 Qed.
 
 Lemma policy_join_stronger: ∀ p1 p2 p3,
@@ -745,6 +773,10 @@ Proof.
     apply preceq_implies in H4. assumption.
   - econstructor; eauto. reflexivity.
     apply IHpolicy_join. apply valid_policy_implies in H0. assumption.
+  - econstructor; eauto. assert (ℓ1 ⊑ ℓ1 ⊔ ℓ2) by apply join_upper_lhs; assumption.
+    apply valid_policy_implies in H0. apply IHpolicy_join. assumption.
+  - econstructor; eauto. assert (ℓ2 ⊑ ℓ1 ⊔ ℓ2) by apply join_upper_rhs; assumption.
+    apply valid_policy_implies in H0. apply IHpolicy_join. assumption.
 Qed.
 
 Axiom policy_join_terminate: ∀ p1 p2, ∃ p3, p1 ∪ p2 = p3.
@@ -1375,7 +1407,56 @@ Qed.
 
 End Tuple.
 
-Ltac str_eq:= auto; simpl in *; unfold char_eq in *; unfold char_lt in *; lia.
+Section Collection.
+
+  Hypothesis elt: Set.
+  Hypothesis E: Ordered elt.
+
+  Definition collection := @list elt.
+
+  Fixpoint collection_eq' (b1 b2: collection): Prop :=
+    match b1 with
+    | nil => match b2 with
+            | nil => True
+            | _ => False
+            end
+    | e :: b1' => match b2 with
+                  | nil => False
+                  | e' :: b2' => match cmp e e' with
+                                | OrderedType.EQ _ => collection_eq' b1' b2'
+                                | OrderedType.GT _ => False
+                                | OrderedType.LT _ => False
+                                end
+                  end
+    end.
+
+  Global Instance collection_is_setoid: Setoid collection.
+  Proof.
+    refine (
+      @Build_Setoid _ collection_eq' _
+    ).
+    constructor.
+    - unfold Reflexive. intros. induction x; try intuition auto with *.
+      simpl in *. destruct (cmp a a); intuition; apply neq in l; intuition auto with *.
+    - unfold Symmetric. induction x; destruct y; auto. intros.
+      simpl in *. destruct (cmp e a); destruct (cmp a e);
+      try assumption; try red in e0; try apply neq in l; auto with *.
+    - unfold Transitive. induction x; destruct y; destruct z; auto with *.
+      intuition. simpl in *.
+      destruct (cmp a e); destruct (cmp e e0); destruct (cmp a e0);
+      try intuition auto with *.
+      + apply neq in l. red in e1. red in e2. eapply transitivity in e2. eauto. assumption.
+      + specialize (IHx _ _ H H0). assumption.
+      + destruct (SetoidDec.equiv_dec e0 a).
+        * apply neq in l. intuition.
+        * apply neq in l. intuition.
+          red in e1. red in e2. assert (a == e0). eapply transitivity. eauto. assumption.
+          symmetry in H1. intuition.
+  Defined.
+
+End Collection.
+
+Ltac str_eq := auto; simpl in *; unfold char_eq in *; unfold char_lt in *; lia.
 
 Section Facts.
   Context {ty: Tuple.tuple_type}.
