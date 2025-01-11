@@ -7,16 +7,18 @@ Require Import Logic.Eqdep_dec Logic.EqdepFacts.
 Require Import String.
 Require Import Unicode.Utf8.
 
-Require Import config.
-Require Import data_model.
-Require Import expression.
-Require Import trace.
-Require Import types.
-Require Import lattice.
-Require Import ordering.
-Require Import relation.
-Require Import util.
-Require Import semantics.
+Require Import Base.Config.
+Require Import Base.Trace.
+Require Import Base.Types.
+Require Import Base.Lattice.
+Require Import Base.Ordering.
+Require Import Base.Util.
+
+Require Import Data.DataModel.
+Require Import Data.Relation.
+
+Require Import Operational.Expression.
+Require Import Operational.Semantics.
 
 Lemma join_policy_and_trace_terminate: ∀ l1 l2 com tr1 tr2, ∃ res,
   join_policy_and_trace l1 l2 com tr1 tr2 res.

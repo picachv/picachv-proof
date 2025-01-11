@@ -4,3 +4,7 @@
 *.aux
 *.glob
 *.d
+
+*.conf
+
+.vscode
